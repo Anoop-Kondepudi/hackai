@@ -78,10 +78,7 @@ async function startStreaming() {
 
   await waitForWebSocketOpen(ws);
 
-  mediaStream = await chrome.tabCapture.capture({ audio: true, video: false });
-  if (!mediaStream) {
-    throw new Error("Tab audio capture failed. Make sure the current tab is playing audio.");
-  }
+  mediaStream = await captureTabAudio();
 
   audioContext = new AudioContext({ sampleRate: 16000 });
   const source = audioContext.createMediaStreamSource(mediaStream);
@@ -141,6 +138,25 @@ function teardownAudio() {
     mediaStream.getTracks().forEach((track) => track.stop());
     mediaStream = null;
   }
+}
+
+
+function captureTabAudio() {
+  return new Promise((resolve, reject) => {
+    chrome.tabCapture.capture({ audio: true, video: false }, (stream) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!stream) {
+        reject(new Error("Tab audio capture failed. Make sure the current tab is playing audio."));
+        return;
+      }
+
+      resolve(stream);
+    });
+  });
 }
 
 function waitForWebSocketOpen(socket) {
