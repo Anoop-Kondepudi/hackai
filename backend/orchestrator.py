@@ -127,6 +127,7 @@ def handle_github_ops(changes: dict, dry_run: bool = False):
             title=task.title,
             body=format_issue_body(task),
             label=task.label,
+            previous_label=task.previous_label,
         )
 
     for task in changes["cancelled"]:
@@ -205,7 +206,11 @@ def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
     # 5. Parse new tasks
     new_tasks = parse_tasks(new_md)
 
-    if not new_tasks and not old_tasks:
+    if not new_tasks:
+        if old_tasks:
+            print("  [extract] Extractor returned no parseable tasks — preserving existing tasks")
+            return True
+
         print("  [extract] No tasks extracted")
         return True
 

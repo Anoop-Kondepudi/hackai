@@ -7,6 +7,7 @@ import logging
 log = logging.getLogger(__name__)
 
 REPO = os.getenv("GITHUB_REPO", "Anoop-Kondepudi/hackai")
+CATEGORY_LABELS = {"bug", "feature", "refactor", "improvement"}
 
 
 def run_gh(args: list[str]) -> tuple[int, str, str]:
@@ -39,15 +40,26 @@ def create_issue(title: str, body: str, label: str) -> str | None:
     return None
 
 
-def edit_issue(issue_number: str, title: str, body: str, label: str):
+def edit_issue(
+    issue_number: str,
+    title: str,
+    body: str,
+    label: str,
+    previous_label: str = "",
+):
     """Update an existing GitHub issue's title, body, and label."""
-    run_gh([
+    args = [
         "issue", "edit", issue_number,
         "--repo", REPO,
         "--title", title,
         "--body", body,
-        "--add-label", label,
-    ])
+    ]
+
+    if previous_label and previous_label != label and previous_label in CATEGORY_LABELS:
+        args.extend(["--remove-label", previous_label])
+
+    args.extend(["--add-label", label])
+    run_gh(args)
 
 
 def close_issue(issue_number: str):

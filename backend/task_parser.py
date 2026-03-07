@@ -16,6 +16,7 @@ class Task:
     source: str
     is_draft_tag: bool  # whether [DRAFT] is in the header
     unchanged_cycles: int = 0  # for auto-stabilization
+    previous_label: str = ""  # transient GitHub sync metadata, not persisted
 
 
 def parse_tasks(md_content: str) -> list[Task]:
@@ -95,6 +96,7 @@ def diff_tasks(
             cancelled.append(new_task)
         elif _task_changed(old_task, new_task):
             new_task.unchanged_cycles = 0
+            new_task.previous_label = old_task.label
             updated.append(new_task)
         else:
             new_task.unchanged_cycles = old_task.unchanged_cycles + 1

@@ -29,7 +29,7 @@ Return ONLY the updated task tracker in the exact format below. No other text, n
 
 ## TASK-{n}: {short title} [DRAFT]
 Issue: (pending)
-Status: {draft | cancelled}
+Status: {draft | cancelled | open}
 Label: {bug | feature | refactor | improvement}
 Last-Updated: {HH:MM:SS}
 Description: {1-2 sentences of what needs to be done}
