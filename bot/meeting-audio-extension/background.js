@@ -1,11 +1,14 @@
+const EXTENSION_RUNTIME_VERSION = "1.1.0";
 let ws;
 let isStreaming = false;
 let activeCaptureTabId = null;
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Live Transcriber extension installed.");
+  console.log(`Live Transcriber extension installed (v${EXTENSION_RUNTIME_VERSION}).`);
 });
+
+console.log(`Live Transcriber background loaded (v${EXTENSION_RUNTIME_VERSION}).`);
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === "START") {

@@ -1,3 +1,4 @@
+const EXTENSION_RUNTIME_VERSION = "1.1.0";
 const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const transcripts = document.getElementById("transcripts");
@@ -10,6 +11,7 @@ initialize();
 async function initialize() {
   stopBtn.disabled = true;
   status.textContent = "Ready to start";
+  console.log(`[Live Transcriber ${EXTENSION_RUNTIME_VERSION}] popup initialized`);
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === "TRANSCRIPT" && message.text) {
@@ -29,7 +31,12 @@ async function initialize() {
     }
 
     if (message.action === "ERROR") {
-      status.textContent = `Error: ${message.message}`;
+      const rawMessage = message.message || "Unknown error";
+      if (rawMessage.includes("tabCapture.capture is not a function")) {
+        status.textContent = "Error: Extension runtime is stale. Please reload extension in chrome://extensions and try again.";
+      } else {
+        status.textContent = `Error: ${rawMessage}`;
+      }
       isStreaming = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
