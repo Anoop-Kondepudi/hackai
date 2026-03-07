@@ -2,6 +2,7 @@ data/**
 !data/**/
 !data/**/.gitkeep
 .env
+CLAUDE.md
 __pycache__/
 node_modules/
 .DS_Store
