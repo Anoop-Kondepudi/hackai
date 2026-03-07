@@ -30,7 +30,7 @@ Return ONLY the updated task tracker in the exact format below. No other text, n
 
 ## TASK-{n}: {short title} [DRAFT]
 Issue: (pending)
-Status: {draft | cancelled | open}
+Status: {draft | cancelled} for new tasks. For existing tasks, keep their current status EXACTLY as shown in the tracker.
 Label: {bug | feature | refactor | improvement}
 Last-Updated: {HH:MM:SS}
 Description: {1-2 sentences of what needs to be done}

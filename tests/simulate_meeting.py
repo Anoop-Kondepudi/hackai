@@ -2,9 +2,7 @@
 """
 Simulate a real meeting flow with incremental transcript chunks.
 
-Each chunk is ~5 seconds of speech (1-2 sentences). Bypasses
-the orchestrator to directly call extract_tasks() so we can
-print exactly what the model receives.
+Tests: extraction, relevance checking, and stabilization.
 
 Usage:
     python tests/simulate_meeting.py
@@ -19,33 +17,57 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
-from extractor import extract_tasks
-from task_parser import parse_tasks, diff_tasks, tasks_to_md
+from orchestrator import run_cycle
 
-# Simulated transcript — each entry is one ~5-second chunk of speech
+# Simulated transcript — each entry is one ~5-second chunk
+# Designed to test: no hallucination, task creation, relevance keeping tasks active,
+# and stabilization once a topic is truly done.
 MEETING_CHUNKS = [
+    # No tasks yet
     ("Shiv", "Hey everyone, let's get started. How's everything going?"),
     ("Anoop", "Good, good. So I looked at the login page this morning."),
-    ("Anoop", "The login is acting weird. Like sometimes it just..."),
-    ("Anoop", "...hangs on the redirect. I think it's the OAuth config."),
-    ("Shiv", "Yeah I saw that too. Is it Google OAuth specifically?"),
-    ("Anoop", "Yeah, Google OAuth. The redirect URI is wrong in production."),
-    ("Shiv", "Got it. So we need to fix the redirect URI in the prod config."),
+
+    # OAuth topic starts — task should be created around here
+    ("Anoop", "The login is broken. Google OAuth redirect URI is wrong in production."),
+    ("Shiv", "Got it, we need to fix the redirect URI in the prod config."),
+
+    # Rate limiting topic starts — second task
     ("Shiv", "Also, the API has been getting hammered lately."),
-    ("Anoop", "We should probably add rate limiting to the endpoints."),
-    ("Shiv", "Yeah, especially the public ones. Maybe 100 requests per minute?"),
+    ("Anoop", "We should add rate limiting to the endpoints."),
+
+    # Still talking about OAuth — relevance check should keep TASK-1 active
+    ("Anoop", "Going back to the OAuth thing — the callback URL points to localhost."),
+    ("Shiv", "Yeah that's definitely the issue with the OAuth redirect."),
+
+    # Casual chat — no tasks, both topics should start stabilizing
+    ("Shiv", "By the way, did you see the new dashboard mockups?"),
+    ("Anoop", "Yeah they look great. Nice work from the design team."),
+
+    # More silence on tasks — should continue stabilizing
+    ("Shiv", "Alright, I think that covers everything for today."),
+    ("Anoop", "Sounds good. Let's sync up again tomorrow."),
 ]
 
+
 def main():
+    sim_dir = PROJECT_ROOT / "data" / "sim_transcripts"
     tasks_file = PROJECT_ROOT / "data" / "tasks" / "tasks.md"
 
     # Start clean
+    if sim_dir.exists():
+        shutil.rmtree(sim_dir)
+    sim_dir.mkdir(parents=True, exist_ok=True)
     if tasks_file.exists():
         tasks_file.unlink()
 
     base_time = datetime(2026, 3, 7, 14, 0, 0)
     all_chunks = []
-    current_tasks_md = ""
+    prev_chunk_count = 0
+
+    print("=" * 60)
+    print("  MEETING SIMULATION (DRY RUN + RELEVANCE CHECK)")
+    print("=" * 60)
+    print()
 
     for i, (speaker, text) in enumerate(MEETING_CHUNKS):
         chunk_time = base_time + timedelta(seconds=i * 5)
@@ -54,57 +76,56 @@ def main():
         chunk = {"speaker": speaker, "text": text, "timestamp": timestamp}
         all_chunks.append(chunk)
 
-        transcript_text = json.dumps(all_chunks, indent=2)
+        # Write accumulated chunks
+        (sim_dir / "transcript.json").write_text(json.dumps(all_chunks, indent=2))
 
-        print("=" * 60)
-        print(f"  CYCLE {i + 1}/{len(MEETING_CHUNKS)}")
-        print("=" * 60)
-        print()
-        print(f"  NEW CHUNK: {speaker}: \"{text}\"")
-        print()
-        print(f"  TRANSCRIPT SENT TO MODEL ({len(all_chunks)} chunks):")
-        print(f"  {transcript_text}")
-        print()
-        print(f"  TASKS.MD SENT TO MODEL:")
-        print(f"  {current_tasks_md if current_tasks_md.strip() else '(empty)'}")
+        print(f"--- Chunk {i + 1}/{len(MEETING_CHUNKS)} [{timestamp}] ---")
+        print(f"  {speaker}: \"{text}\"")
         print()
 
-        # Call the model directly
-        print("  [calling gpt-4.1-nano...]")
-        new_md = extract_tasks(transcript_text, current_tasks_md)
-        print()
+        _, prev_chunk_count = run_cycle(sim_dir, dry_run=True, prev_chunk_count=prev_chunk_count)
 
-        if new_md is None:
-            print("  [API returned None — skipping]")
-            continue
-
-        print(f"  MODEL RETURNED:")
-        print(f"  {new_md}")
-        print()
-
-        # Diff
-        old_tasks = parse_tasks(current_tasks_md) if current_tasks_md.strip() else []
-        new_tasks = parse_tasks(new_md)
-
-        changes = diff_tasks(old_tasks, new_tasks if new_tasks else [])
-        added = len(changes["added"])
-        updated = len(changes["updated"])
-        cancelled = len(changes["cancelled"])
-        unchanged = len(changes["unchanged"])
-        print(f"  DIFF: +{added} new, ~{updated} updated, x{cancelled} cancelled, ={unchanged} unchanged")
-
-        # Update current state
-        all_tasks = changes["added"] + changes["updated"] + changes["cancelled"] + changes["unchanged"]
-        all_tasks.sort(key=lambda t: t.id)
-
-        if all_tasks:
-            header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
-            current_tasks_md = header + tasks_to_md(all_tasks)
-        else:
-            current_tasks_md = ""
-
+        # Show task state
+        if tasks_file.exists():
+            content = tasks_file.read_text().strip()
+            task_count = content.count("## TASK-")
+            if task_count > 0:
+                print(f"\n  [state] {task_count} task(s):")
+                for line in content.split("\n"):
+                    if line.startswith("## TASK-"):
+                        print(f"    {line}")
+                    elif line.startswith("Unchanged-Cycles:") or line.startswith("Status:"):
+                        print(f"      {line}")
         print()
         print()
+
+    # Stabilization cycles
+    print("=" * 60)
+    print("  MEETING ENDED — stabilization cycles")
+    print("=" * 60)
+    print()
+
+    for cycle in range(1, 5):
+        print(f"--- Stabilization cycle {cycle}/4 ---")
+        _, prev_chunk_count = run_cycle(sim_dir, dry_run=True, prev_chunk_count=prev_chunk_count)
+
+        if tasks_file.exists():
+            content = tasks_file.read_text().strip()
+            for line in content.split("\n"):
+                if line.startswith("## TASK-"):
+                    print(f"  {line}")
+                elif line.startswith("Status:") or line.startswith("Unchanged-Cycles:"):
+                    print(f"    {line}")
+        print()
+
+    # Final
+    print("=" * 60)
+    print("  FINAL tasks.md")
+    print("=" * 60)
+    if tasks_file.exists():
+        print(tasks_file.read_text())
+
+    shutil.rmtree(sim_dir)
 
 
 if __name__ == "__main__":

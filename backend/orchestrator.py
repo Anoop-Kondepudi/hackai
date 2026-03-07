@@ -27,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 from extractor import extract_tasks
+from relevance import check_relevance
 from task_parser import parse_tasks, diff_tasks, tasks_to_md, Task
 from github_ops import create_issue, edit_issue, close_issue, remove_label
 
@@ -44,8 +45,8 @@ MAX_CHARS = 80_000 * 4  # ~80k tokens
 STABILIZE_AFTER_CYCLES = 3
 
 
-def read_transcripts(source_dir: Path) -> str:
-    """Read all transcript JSON files and return as a formatted string."""
+def read_transcripts(source_dir: Path) -> tuple[str, list[dict]]:
+    """Read all transcript JSON files. Returns (formatted_string, raw_chunks)."""
     all_chunks = []
 
     for f in sorted(source_dir.glob("*.json")):
@@ -64,9 +65,9 @@ def read_transcripts(source_dir: Path) -> str:
     all_chunks.sort(key=lambda c: c.get("timestamp", ""))
 
     if not all_chunks:
-        return ""
+        return "", []
 
-    return json.dumps(all_chunks, indent=2)
+    return json.dumps(all_chunks, indent=2), all_chunks
 
 
 def read_tasks_md() -> str:
@@ -172,19 +173,22 @@ def handle_stabilization(unchanged_tasks: list[Task], dry_run: bool = False):
                 print(f"  [github] Removed 'draft' label from #{issue_num}")
 
 
-def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
-    """Run one extraction cycle. Returns True if transcripts were found."""
+def run_cycle(source_dir: Path, dry_run: bool = False, prev_chunk_count: int = 0) -> tuple[bool, int]:
+    """Run one extraction cycle. Returns (had_data, chunk_count)."""
 
     # 1. Read transcripts
-    transcript_text = read_transcripts(source_dir)
+    transcript_text, all_chunks = read_transcripts(source_dir)
     if not transcript_text:
-        return False
+        return False, 0
+
+    chunk_count = len(all_chunks)
+    new_chunks = all_chunks[prev_chunk_count:]
 
     # 2. Token safety check
     if len(transcript_text) > MAX_CHARS:
         print("  [ERROR] Transcript exceeds 80k token limit! Stopping extraction.")
         print("  [ERROR] Tasks preserved as-is. Send bot message to meeting chat.")
-        return False
+        return False, chunk_count
 
     # 3. Read current tasks
     current_md = read_tasks_md()
@@ -199,7 +203,7 @@ def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
     # Handle API failure — preserve existing tasks
     if new_md is None:
         print(f"  [extract] API call failed after {elapsed:.2f}s — preserving existing tasks")
-        return True
+        return True, chunk_count
 
     print(f"  [extract] Done in {elapsed:.2f}s")
 
@@ -209,10 +213,10 @@ def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
     if not new_tasks:
         if old_tasks:
             print("  [extract] Extractor returned no parseable tasks — preserving existing tasks")
-            return True
+            return True, chunk_count
 
         print("  [extract] No tasks extracted")
-        return True
+        return True, chunk_count
 
     # 6. Diff (also preserves old tasks dropped by AI)
     changes = diff_tasks(old_tasks, new_tasks if new_tasks else [])
@@ -227,7 +231,16 @@ def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
     # 7. GitHub ops
     handle_github_ops(changes, dry_run)
 
-    # 8. Auto-stabilization
+    # 8. Relevance check — reset unchanged_cycles for tasks still being discussed
+    if new_chunks and changes["unchanged"]:
+        active_ids = check_relevance(new_chunks, changes["unchanged"])
+        if active_ids:
+            for task in changes["unchanged"]:
+                if task.id in active_ids:
+                    print(f"  [relevance] TASK-{task.id}: {task.title} — still being discussed, resetting counter")
+                    task.unchanged_cycles = 0
+
+    # 9. Auto-stabilization
     handle_stabilization(changes["unchanged"], dry_run)
 
     # 9. Rebuild task list with updated state (issue numbers, stabilization)
@@ -239,7 +252,7 @@ def run_cycle(source_dir: Path, dry_run: bool = False) -> bool:
     write_tasks_md(header + tasks_to_md(all_tasks))
 
     print(f"  [write] Updated {TASKS_FILE}")
-    return True
+    return True, chunk_count
 
 
 def main():
@@ -265,12 +278,13 @@ def main():
         return
 
     cycle = 0
+    prev_chunk_count = 0
     while True:
         cycle += 1
         print(f"[cycle {cycle}] {datetime.now().strftime('%H:%M:%S')}")
 
         try:
-            has_data = run_cycle(source_dir, args.dry_run)
+            has_data, prev_chunk_count = run_cycle(source_dir, args.dry_run, prev_chunk_count)
             if not has_data:
                 print("  [wait] No transcripts found, waiting...")
         except KeyboardInterrupt:
