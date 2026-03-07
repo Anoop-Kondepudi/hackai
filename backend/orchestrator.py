@@ -175,18 +175,21 @@ def _run_plan_in_background(task: Task, dry_run: bool = False):
         issue_number=issue_num,
         dry_run=dry_run,
     )
+    current_md = read_tasks_md()
+    old_tasks = parse_tasks(current_md) if current_md else []
     if plan:
-        task.status = "planned"
-        # Persist the status change
-        current_md = read_tasks_md()
-        old_tasks = parse_tasks(current_md) if current_md else []
-        for t in old_tasks:
-            if t.id == task.id:
-                t.status = "planned"
-                break
-        header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
-        write_tasks_md(header + tasks_to_md(old_tasks))
-        print(f"  [plan] TASK-{task.id} status → planned")
+        new_status = "planned"
+    else:
+        new_status = "draft"
+    for t in old_tasks:
+        if t.id == task.id:
+            t.status = new_status
+            if new_status == "draft":
+                t.is_draft_tag = True
+            break
+    header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
+    write_tasks_md(header + tasks_to_md(old_tasks))
+    print(f"  [plan] TASK-{task.id} status → {new_status}")
 
 
 def handle_stabilization(unchanged_tasks: list[Task], dry_run: bool = False):
