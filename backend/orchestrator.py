@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import json
+import threading
 import logging
 import os
 import sys
@@ -29,7 +30,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 from extractor import extract_tasks
 from relevance import check_relevance
 from task_parser import parse_tasks, diff_tasks, tasks_to_md, Task
-from github_ops import create_issue, edit_issue, close_issue, remove_label
+from github_ops import create_issue, edit_issue, close_issue, remove_label, add_label
+from plan_generator import generate_plan
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
@@ -43,6 +45,9 @@ MAX_CHARS = 80_000 * 4  # ~80k tokens
 
 # Auto-stabilization threshold
 STABILIZE_AFTER_CYCLES = 3
+
+# Track plan generation threads
+_plan_threads: list[threading.Thread] = []
 
 
 def read_transcripts(source_dir: Path) -> tuple[str, list[dict]]:
@@ -159,18 +164,55 @@ def handle_github_ops(changes: dict, dry_run: bool = False):
                 print(f"  [github] Created #{issue_num}")
 
 
+def _run_plan_in_background(task: Task, dry_run: bool = False):
+    """Run plan generation in a background thread, update task status on completion."""
+    issue_num = task.issue_number.lstrip("#")
+    plan = generate_plan(
+        title=task.title,
+        description=task.description,
+        label=task.label,
+        source=task.source,
+        issue_number=issue_num,
+        dry_run=dry_run,
+    )
+    if plan:
+        task.status = "planned"
+        # Persist the status change
+        current_md = read_tasks_md()
+        old_tasks = parse_tasks(current_md) if current_md else []
+        for t in old_tasks:
+            if t.id == task.id:
+                t.status = "planned"
+                break
+        header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
+        write_tasks_md(header + tasks_to_md(old_tasks))
+        print(f"  [plan] TASK-{task.id} status → planned")
+
+
 def handle_stabilization(unchanged_tasks: list[Task], dry_run: bool = False):
-    """Auto-stabilize tasks that haven't changed for N cycles."""
+    """Auto-stabilize tasks that haven't changed for N cycles. Triggers plan generation."""
     for task in unchanged_tasks:
         if task.unchanged_cycles >= STABILIZE_AFTER_CYCLES and task.status == "draft":
             print(f"  [stabilize] TASK-{task.id}: {task.title} — stable after {task.unchanged_cycles} cycles")
-            task.status = "open"
+            task.status = "planning"
             task.is_draft_tag = False
 
             if task.issue_number != "(pending)" and not dry_run:
                 issue_num = task.issue_number.lstrip("#")
                 remove_label(issue_num, "draft")
-                print(f"  [github] Removed 'draft' label from #{issue_num}")
+                add_label(issue_num, "planning")
+                print(f"  [github] Labels: draft → planning for #{issue_num}")
+
+                # Fire and forget plan generation
+                thread = threading.Thread(
+                    target=_run_plan_in_background,
+                    args=(task, dry_run),
+                )
+                thread.start()
+                _plan_threads.append(thread)
+                print(f"  [plan] Started plan generation for #{issue_num}")
+            elif dry_run:
+                print(f"  [dry-run] Would start plan generation for TASK-{task.id}")
 
 
 def run_cycle(source_dir: Path, dry_run: bool = False, prev_chunk_count: int = 0) -> tuple[bool, int]:
@@ -196,17 +238,30 @@ def run_cycle(source_dir: Path, dry_run: bool = False, prev_chunk_count: int = 0
         finalized = 0
         for task in old_tasks:
             if task.status == "draft":
-                task.status = "open"
+                task.status = "planning"
                 task.is_draft_tag = False
                 finalized += 1
                 if task.issue_number != "(pending)" and not dry_run:
                     issue_num = task.issue_number.lstrip("#")
                     remove_label(issue_num, "draft")
-                    print(f"  [github] Removed 'draft' label from #{issue_num}")
+                    add_label(issue_num, "planning")
+                    print(f"  [github] Labels: draft → planning for #{issue_num}")
+                    # Fire and forget plan generation
+                    thread = threading.Thread(
+                        target=_run_plan_in_background,
+                        args=(task, dry_run),
+                    )
+                    thread.start()
+                    _plan_threads.append(thread)
+                    print(f"  [plan] Started plan generation for #{issue_num}")
         if finalized:
             header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
             write_tasks_md(header + tasks_to_md(old_tasks))
-            print(f"  [finalize] {finalized} task(s) moved from draft → open")
+            print(f"  [finalize] {finalized} task(s) moved from draft → planning")
+        # Wait for all plan threads to finish before returning
+        for t in _plan_threads:
+            t.join()
+        _plan_threads.clear()
         return True, chunk_count
 
     # 3. Token safety check
@@ -277,6 +332,14 @@ def run_cycle(source_dir: Path, dry_run: bool = False, prev_chunk_count: int = 0
     write_tasks_md(header + tasks_to_md(all_tasks))
 
     print(f"  [write] Updated {TASKS_FILE}")
+
+    # Wait for any plan generation threads from stabilization
+    if _plan_threads:
+        print(f"  [plan] Waiting for {len(_plan_threads)} plan(s) to complete...")
+        for t in _plan_threads:
+            t.join()
+        _plan_threads.clear()
+
     return True, chunk_count
 
 

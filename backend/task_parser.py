@@ -9,7 +9,7 @@ class Task:
     id: int
     title: str
     issue_number: str  # "(pending)" or "#42"
-    status: str  # "draft", "cancelled", or "open"
+    status: str  # "draft", "cancelled", "planning", or "planned"
     label: str
     last_updated: str
     description: str
@@ -32,7 +32,7 @@ def parse_tasks(md_content: str) -> list[Task]:
 
         # Parse header: ## TASK-1: Fix something [DRAFT]
         header_match = re.match(
-            r"^## TASK-(\d+):\s*(.+?)(?:\s*\[(DRAFT|CANCELLED)\])?\s*$",
+            r"^## TASK-(\d+):\s*(.+?)(?:\s*\[(DRAFT|CANCELLED|PLANNING|PLANNED)\])?\s*$",
             block.split("\n")[0],
         )
         if not header_match:
@@ -40,6 +40,8 @@ def parse_tasks(md_content: str) -> list[Task]:
 
         task_id = int(header_match.group(1))
         title = header_match.group(2).strip()
+        # Strip any stray bracketed text the AI may add (e.g., [pending])
+        title = re.sub(r"\s*\[(?:pending|open|draft)\]\s*", "", title, flags=re.IGNORECASE).strip()
         tag = header_match.group(3) or ""
 
         # Parse fields
@@ -134,6 +136,10 @@ def tasks_to_md(tasks: list[Task]) -> str:
         tag = "[DRAFT]" if t.status == "draft" and t.is_draft_tag else ""
         if t.status == "cancelled":
             tag = "[CANCELLED]"
+        elif t.status == "planning":
+            tag = "[PLANNING]"
+        elif t.status == "planned":
+            tag = "[PLANNED]"
         lines.append(f"## TASK-{t.id}: {t.title} {tag}".rstrip())
         lines.append(f"Issue: {t.issue_number}")
         lines.append(f"Status: {t.status}")

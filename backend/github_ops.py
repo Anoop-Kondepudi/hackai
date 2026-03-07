@@ -93,3 +93,13 @@ def add_label(issue_number: str, label: str):
         "--repo", REPO,
         "--add-label", label,
     ])
+
+
+def comment_on_issue(issue_number: str, body: str) -> bool:
+    """Post a comment on a GitHub issue. Returns True on success."""
+    code, _, _ = run_gh([
+        "issue", "comment", issue_number,
+        "--repo", REPO,
+        "--body", body,
+    ])
+    return code == 0
