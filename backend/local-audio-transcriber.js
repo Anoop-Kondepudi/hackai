@@ -1,0 +1,133 @@
+import { spawn } from "node:child_process";
+import { AssemblyAI } from "assemblyai";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const apiKey = process.env.ASSEMBLYAI_API_KEY;
+if (!apiKey) {
+  console.error("Missing ASSEMBLYAI_API_KEY in environment.");
+  process.exit(1);
+}
+
+const speechModel = process.env.ASSEMBLYAI_SPEECH_MODEL || "universal-streaming-multilingual";
+const sampleRate = Number(process.env.AUDIO_SAMPLE_RATE || 16000);
+const ffmpegFormat = process.env.AUDIO_INPUT_FORMAT || defaultInputFormat();
+const ffmpegDevice = process.env.AUDIO_INPUT_DEVICE || defaultInputDevice();
+
+const client = new AssemblyAI({ apiKey });
+const transcriber = client.streaming.transcriber({
+  sampleRate,
+  speechModel
+});
+
+let ffmpegProcess;
+let ready = false;
+const queuedChunks = [];
+
+transcriber.on("open", ({ id }) => {
+  ready = true;
+  console.log(`AssemblyAI session opened: ${id}`);
+
+  while (queuedChunks.length > 0) {
+    transcriber.sendAudio(queuedChunks.shift());
+  }
+});
+
+transcriber.on("turn", (turn) => {
+  const text = (turn.transcript || "").trim();
+  if (!text) return;
+  const tag = turn.end_of_turn ? "final" : "partial";
+  console.log(`[${tag}] ${text}`);
+});
+
+transcriber.on("error", (error) => {
+  console.error("AssemblyAI streaming error:", error?.message || error);
+});
+
+transcriber.on("close", (code, reason) => {
+  ready = false;
+  console.log("AssemblyAI streaming closed:", code, reason || "");
+});
+
+await transcriber.connect();
+console.log("Connected to AssemblyAI streaming API");
+console.log(`Starting microphone capture via ffmpeg: format=${ffmpegFormat}, device=${ffmpegDevice}`);
+console.log("Press Ctrl+C to stop.\n");
+
+ffmpegProcess = spawn(
+  "ffmpeg",
+  [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-f",
+    ffmpegFormat,
+    "-i",
+    ffmpegDevice,
+    "-ac",
+    "1",
+    "-ar",
+    String(sampleRate),
+    "-f",
+    "s16le",
+    "pipe:1"
+  ],
+  { stdio: ["ignore", "pipe", "pipe"] }
+);
+
+ffmpegProcess.stdout.on("data", (chunk) => {
+  if (ready) {
+    transcriber.sendAudio(chunk);
+  } else {
+    queuedChunks.push(chunk);
+  }
+});
+
+ffmpegProcess.stderr.on("data", (data) => {
+  const msg = data.toString().trim();
+  if (msg) console.error("ffmpeg:", msg);
+});
+
+ffmpegProcess.on("error", (error) => {
+  console.error("Failed to start ffmpeg. Is it installed and on PATH?", error.message);
+  shutdown(1);
+});
+
+ffmpegProcess.on("close", (code) => {
+  console.log(`ffmpeg process exited with code ${code}`);
+  shutdown(code === 0 ? 0 : 1);
+});
+
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
+
+let shuttingDown = false;
+async function shutdown(exitCode) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  if (ffmpegProcess && !ffmpegProcess.killed) {
+    ffmpegProcess.kill("SIGTERM");
+  }
+
+  try {
+    await transcriber.close();
+  } catch (error) {
+    console.error("Error closing transcriber:", error?.message || error);
+  }
+
+  process.exit(exitCode);
+}
+
+function defaultInputFormat() {
+  if (process.platform === "darwin") return "avfoundation";
+  if (process.platform === "win32") return "dshow";
+  return "pulse";
+}
+
+function defaultInputDevice() {
+  if (process.platform === "darwin") return ":0";
+  if (process.platform === "win32") return "audio=default";
+  return "default";
+}

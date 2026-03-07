@@ -31,3 +31,32 @@ ASSEMBLYAI_API_KEY=your_key_here npm start
 ```
 
 The server listens on `ws://localhost:3001` (or `PORT` if set) and prints transcripts to stdout.
+
+## Local Node-only transcription (no Chrome extension)
+
+If you want to drop the extension and transcribe directly from local audio input, run:
+
+```bash
+cd backend
+ASSEMBLYAI_API_KEY=your_key_here npm run transcribe:local
+```
+
+This script (`local-audio-transcriber.js`) uses `ffmpeg` to read local audio input and streams PCM audio to AssemblyAI Streaming v3.
+
+### Optional environment variables
+
+```bash
+# defaults by OS: macOS=avfoundation, Linux=pulse, Windows=dshow
+AUDIO_INPUT_FORMAT=avfoundation
+
+# defaults by OS: macOS=:0, Linux=default, Windows=audio=default
+AUDIO_INPUT_DEVICE=:0
+
+# defaults to 16000
+AUDIO_SAMPLE_RATE=16000
+
+# defaults to universal-streaming-multilingual
+ASSEMBLYAI_SPEECH_MODEL=universal-streaming-multilingual
+```
+
+> Note: `ffmpeg` must be installed and available in your PATH.
