@@ -18,7 +18,7 @@ IssueStatus JSON matching `shared/schemas/issue_status.json`
 
 ## Local meeting transcription websocket
 
-A lightweight local websocket server is available at `backend/meeting-audio-backend.js` for extension-driven live transcription with AssemblyAI.
+A lightweight local websocket server is available at `backend/meeting-audio-backend.js` for extension-driven live transcription with AssemblyAI Streaming (v3 websocket API).
 
 ### Run
 
@@ -26,6 +26,8 @@ A lightweight local websocket server is available at `backend/meeting-audio-back
 cd backend
 npm install
 ASSEMBLYAI_API_KEY=your_key_here npm start
+# optional
+# ASSEMBLYAI_SPEECH_MODEL=universal-streaming-multilingual npm start
 ```
 
 The server listens on `ws://localhost:3001` (or `PORT` if set) and prints transcripts to stdout.

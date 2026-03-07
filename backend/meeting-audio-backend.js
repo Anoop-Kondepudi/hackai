@@ -1,4 +1,4 @@
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { AssemblyAI } from "assemblyai";
 import dotenv from "dotenv";
 
@@ -18,51 +18,74 @@ const wss = new WebSocketServer({ port });
 wss.on("connection", async (socket) => {
   console.log("Extension connected.");
 
-  const transcriber = client.realtime.transcriber({ sampleRate: 16000 });
+  // Use the v3 Streaming API (realtime/v2 returns HTTP 410 for many accounts).
+  const transcriber = client.streaming.transcriber({
+    sampleRate: 16000,
+    speechModel: process.env.ASSEMBLYAI_SPEECH_MODEL || "universal-streaming-multilingual"
+  });
+
   let transcriberReady = false;
   const audioBufferQueue = [];
 
-  transcriber.on("open", ({ sessionId }) => {
+  transcriber.on("open", ({ id, expires_at: expiresAt }) => {
     transcriberReady = true;
-    console.log("AssemblyAI realtime session open:", sessionId);
+    console.log("AssemblyAI streaming session open:", id, "expires_at:", expiresAt);
 
     while (audioBufferQueue.length > 0) {
-      const chunk = audioBufferQueue.shift();
-      transcriber.sendAudio(chunk);
+      transcriber.sendAudio(audioBufferQueue.shift());
     }
   });
 
-  transcriber.on("transcript", (transcript) => {
-    if (!transcript.text) return;
+  transcriber.on("turn", (turn) => {
+    const text = (turn.transcript || "").trim();
+    if (!text) return;
 
-    const cleanText = transcript.text.trim();
-    if (!cleanText) return;
-
-    console.log("Transcript:", cleanText);
+    const transcriptType = turn.end_of_turn ? "final" : "partial";
+    console.log(`Transcript (${transcriptType}):`, text);
 
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "TRANSCRIPT", text: cleanText }));
+      socket.send(
+        JSON.stringify({
+          type: "TRANSCRIPT",
+          text,
+          isFinal: Boolean(turn.end_of_turn)
+        })
+      );
     }
   });
 
   transcriber.on("error", (error) => {
-    console.error("AssemblyAI realtime error:", error);
+    const message = error?.message || String(error);
+    console.error("AssemblyAI streaming error:", message);
+
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "ERROR", message: "AssemblyAI transcription error" }));
+      socket.send(
+        JSON.stringify({
+          type: "ERROR",
+          message: `AssemblyAI streaming error: ${message}`
+        })
+      );
     }
   });
 
   transcriber.on("close", (code, reason) => {
     transcriberReady = false;
-    console.log("AssemblyAI realtime closed:", code, reason || "");
+    console.log("AssemblyAI streaming closed:", code, reason || "");
   });
 
   try {
     await transcriber.connect();
   } catch (error) {
-    console.error("Failed to connect to AssemblyAI realtime API:", error);
+    const message = error?.message || String(error);
+    console.error("Failed to connect to AssemblyAI streaming API:", message);
+
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "ERROR", message: "Could not connect to AssemblyAI" }));
+      socket.send(
+        JSON.stringify({
+          type: "ERROR",
+          message: `Could not connect to AssemblyAI streaming API: ${message}`
+        })
+      );
       socket.close();
     }
     return;
@@ -79,12 +102,12 @@ wss.on("connection", async (socket) => {
     }
   });
 
-  socket.on("close", () => {
+  socket.on("close", async () => {
     console.log("Extension disconnected.");
     try {
-      transcriber.close();
+      await transcriber.close();
     } catch (error) {
-      console.error("Error closing AssemblyAI transcriber:", error);
+      console.error("Error closing AssemblyAI streaming transcriber:", error);
     }
   });
 

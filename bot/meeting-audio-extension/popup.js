@@ -50,7 +50,8 @@ async function startStreaming() {
     try {
       const data = JSON.parse(event.data);
       if (data.type === "TRANSCRIPT" && data.text) {
-        transcripts.textContent += `${data.text}\n`;
+        const prefix = data.isFinal ? "" : "… ";
+        transcripts.textContent += `${prefix}${data.text}\n`;
         transcripts.scrollTop = transcripts.scrollHeight;
       } else if (data.type === "ERROR") {
         status.textContent = `Error: ${data.message}`;
