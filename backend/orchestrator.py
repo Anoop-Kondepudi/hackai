@@ -184,7 +184,32 @@ def run_cycle(source_dir: Path, dry_run: bool = False, prev_chunk_count: int = 0
     chunk_count = len(all_chunks)
     new_chunks = all_chunks[prev_chunk_count:]
 
-    # 2. Token safety check
+    # 2. Check for MEETING_ENDED signal
+    meeting_ended = any(
+        c.get("text", "").strip().upper() == "MEETING_ENDED"
+        for c in new_chunks
+    )
+    if meeting_ended:
+        print("  [signal] MEETING_ENDED received — finalizing all draft tasks")
+        current_md = read_tasks_md()
+        old_tasks = parse_tasks(current_md) if current_md else []
+        finalized = 0
+        for task in old_tasks:
+            if task.status == "draft":
+                task.status = "open"
+                task.is_draft_tag = False
+                finalized += 1
+                if task.issue_number != "(pending)" and not dry_run:
+                    issue_num = task.issue_number.lstrip("#")
+                    remove_label(issue_num, "draft")
+                    print(f"  [github] Removed 'draft' label from #{issue_num}")
+        if finalized:
+            header = f"# Meeting Tasks — {datetime.now().strftime('%Y-%m-%d')}\n\n"
+            write_tasks_md(header + tasks_to_md(old_tasks))
+            print(f"  [finalize] {finalized} task(s) moved from draft → open")
+        return True, chunk_count
+
+    # 3. Token safety check
     if len(transcript_text) > MAX_CHARS:
         print("  [ERROR] Transcript exceeds 80k token limit! Stopping extraction.")
         print("  [ERROR] Tasks preserved as-is. Send bot message to meeting chat.")
