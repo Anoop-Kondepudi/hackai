@@ -73,31 +73,32 @@ export default function Dashboard() {
             Task Status Breakdown
           </h3>
 
-          {/* Stacked bar */}
-          <div className="flex h-8 rounded-lg overflow-hidden gap-0.5">
+          {/* Stacked bar — clip-path reveal animation */}
+          <motion.div
+            initial={{ clipPath: "inset(0 100% 0 0)" }}
+            animate={{ clipPath: "inset(0 0% 0 0)" }}
+            transition={{ delay: 0.3, duration: 1, ease: [0.25, 0.1, 0.25, 1] }}
+            className="h-9 rounded-xl overflow-hidden flex"
+          >
             {PHASE_ORDER.map((status) => {
               const count = mockStats.tasksByStatus[status]
               if (count === 0) return null
-              const total = mockStats.totalTasks
-              const pct = (count / total) * 100
+              const pct = (count / mockStats.totalTasks) * 100
               return (
-                <motion.div
+                <div
                   key={status}
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: 1 }}
-                  transition={{ delay: 0.3, duration: 0.6, ease: "easeOut" }}
-                  style={{ width: `${pct}%`, originX: 0 }}
+                  style={{ width: `${pct}%` }}
                   className={`${statusColors[status].bg} flex items-center justify-center`}
                 >
-                  {pct >= 12 && (
+                  {pct >= 10 && (
                     <span className="text-xs font-semibold text-white/90">
                       {count}
                     </span>
                   )}
-                </motion.div>
+                </div>
               )
             })}
-          </div>
+          </motion.div>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-x-5 gap-y-2 mt-4">
