@@ -21,7 +21,7 @@ export function Sidebar() {
           <div className="bg-emerald-600 p-1.5 rounded-lg text-white">
             <Zap className="w-5 h-5" />
           </div>
-          <span className="text-zinc-100">HackAI</span>
+          <span className="text-zinc-100">Meet2Code</span>
         </Link>
       </div>
       <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
