@@ -4,7 +4,7 @@ import AddTodo from './components/AddTodo';
 import TodoList from './components/TodoList';
 
 function App() {
-  const { todos, addTodo, toggleTodo, deleteTodo } = useTodos();
+  const { todos, addTodo, toggleTodo, editTodo, deleteTodo } = useTodos();
   const activeCount = todos.filter((t) => !t.completed).length;
 
   return (
@@ -12,7 +12,12 @@ function App() {
       <Header todoCount={activeCount} />
       <main className="max-w-2xl mx-auto px-4 py-8">
         <AddTodo onAdd={addTodo} />
-        <TodoList todos={todos} onToggle={toggleTodo} onDelete={deleteTodo} />
+        <TodoList
+          todos={todos}
+          onToggle={toggleTodo}
+          onEdit={editTodo}
+          onDelete={deleteTodo}
+        />
       </main>
     </div>
   );

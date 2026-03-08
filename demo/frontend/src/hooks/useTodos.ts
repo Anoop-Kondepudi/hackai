@@ -51,6 +51,21 @@ export function useTodos() {
     }
   }
 
+  async function editTodo(id: string, title: string) {
+    const trimmedTitle = title.trim();
+    try {
+      const res = await fetch(`/api/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmedTitle }),
+      });
+      if (!res.ok) throw new Error('Failed to edit todo');
+      await fetchTodos();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown error');
+    }
+  }
+
   async function deleteTodo(id: string) {
     try {
       const res = await fetch(`/api/todos/${id}`, { method: 'DELETE' });
@@ -65,5 +80,5 @@ export function useTodos() {
     fetchTodos();
   }, []);
 
-  return { todos, loading, error, addTodo, toggleTodo, deleteTodo };
+  return { todos, loading, error, addTodo, toggleTodo, editTodo, deleteTodo };
 }
