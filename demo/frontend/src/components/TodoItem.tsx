@@ -8,13 +8,14 @@ interface TodoItemProps {
 
 export default function TodoItem({ todo, onToggle, onDelete }: TodoItemProps) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-4">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-4 dark:bg-slate-900 dark:border-slate-800">
       <button
+        type="button"
         onClick={() => onToggle(todo.id)}
         className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
           todo.completed
             ? 'bg-emerald-500 border-emerald-500'
-            : 'border-slate-300'
+            : 'border-slate-300 dark:border-slate-600'
         }`}
       >
         {todo.completed && (
@@ -35,14 +36,17 @@ export default function TodoItem({ todo, onToggle, onDelete }: TodoItemProps) {
       </button>
       <span
         className={`text-sm font-medium flex-1 ${
-          todo.completed ? 'line-through text-slate-400' : 'text-slate-800'
+          todo.completed
+            ? 'line-through text-slate-400 dark:text-slate-500'
+            : 'text-slate-800 dark:text-slate-100'
         }`}
       >
         {todo.title}
       </span>
       <button
+        type="button"
         onClick={() => onDelete(todo.id)}
-        className="text-slate-400 p-1"
+        className="text-slate-400 p-1 transition-colors hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
       >
         <svg
           className="w-4 h-4"
