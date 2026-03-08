@@ -29,7 +29,7 @@ export function PhaseColumn({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "flex flex-col min-w-[240px] w-full rounded-xl border border-zinc-800 border-t-2 bg-zinc-900/50",
+        "flex flex-col w-full rounded-xl border border-zinc-800 border-t-2 bg-zinc-900/50",
         phaseAccent[status]
       )}
     >
