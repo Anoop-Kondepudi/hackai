@@ -1,125 +1,230 @@
+const EXTENSION_RUNTIME_VERSION = "1.1.0";
 let ws;
-let mediaStream;
-let audioContext;
-let processor;
 let isStreaming = false;
+let activeCaptureTabId = null;
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === "START") {
-    console.log("START received");
-    if (!isStreaming) {
-      startStreaming();
-    }
-  }
-  if (msg.action === "STOP") {
-    console.log("STOP received");
-    if (isStreaming) {
-      stopStreaming();
-    }
-  }
+chrome.runtime.onInstalled.addListener(() => {
+  console.log(`Live Transcriber extension installed (v${EXTENSION_RUNTIME_VERSION}).`);
 });
 
-function startStreaming() {
-  try {
-    ws = new WebSocket("ws://localhost:3001");
+console.log(`Live Transcriber background loaded (v${EXTENSION_RUNTIME_VERSION}).`);
 
-    ws.onopen = () => {
-      console.log("Connected to backend");
-      isStreaming = true;
-      chrome.runtime.sendMessage({ action: "STATUS", status: "Connected" });
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "TRANSCRIPT") {
-          chrome.runtime.sendMessage(data);
-        } else if (data.type === "ERROR") {
-          chrome.runtime.sendMessage({ action: "ERROR", message: data.message });
-        }
-      } catch (error) {
-        console.error("Error parsing message from backend:", error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      chrome.runtime.sendMessage({ action: "ERROR", message: "Connection error" });
-      stopStreaming();
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket closed");
-      isStreaming = false;
-      chrome.runtime.sendMessage({ action: "STATUS", status: "Disconnected" });
-    };
-
-    // Capture tab audio
-    chrome.tabCapture.capture({ audio: true, video: false }).then(stream => {
-      if (!stream) {
-        throw new Error("Failed to capture audio");
-      }
-      
-      mediaStream = stream;
-      audioContext = new AudioContext({ sampleRate: 16000 });
-      const source = audioContext.createMediaStreamSource(mediaStream);
-
-      processor = audioContext.createScriptProcessor(4096, 1, 1);
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-
-      processor.onaudioprocess = (e) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          const floatData = e.inputBuffer.getChannelData(0);
-          ws.send(floatTo16BitPCM(floatData));
-        }
-      };
-
-      chrome.runtime.sendMessage({ action: "STATUS", status: "Recording" });
-    }).catch(error => {
-      console.error("Error capturing audio:", error);
-      chrome.runtime.sendMessage({ action: "ERROR", message: "Failed to capture audio" });
-      stopStreaming();
-    });
-
-  } catch (error) {
-    console.error("Error starting streaming:", error);
-    chrome.runtime.sendMessage({ action: "ERROR", message: "Failed to start streaming" });
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.action === "START") {
+    startStreaming(message.tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => {
+        sendStatusError(error.message || "Failed to start streaming");
+        sendResponse({ ok: false, message: error.message || "Failed to start streaming" });
+      });
+    return true;
   }
+
+  if (message.action === "STOP") {
+    stopStreaming();
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.action === "GET_STATE") {
+    sendResponse({
+      ok: true,
+      isStreaming,
+      tabId: activeCaptureTabId
+    });
+    return true;
+  }
+
+  if (message.action === "AUDIO_CHUNK") {
+    if (ws && ws.readyState === WebSocket.OPEN && message.chunk) {
+      ws.send(message.chunk);
+    }
+    return false;
+  }
+
+  if (message.action === "CAPTURE_ERROR") {
+    sendStatusError(message.message || "Capture failed");
+    stopStreaming();
+    return false;
+  }
+
+  return false;
+});
+
+async function startStreaming(requestedTabId) {
+  if (isStreaming) {
+    throw new Error("Already streaming");
+  }
+
+  const tabId = Number.isInteger(requestedTabId) ? requestedTabId : await getActiveTabId();
+  if (!Number.isInteger(tabId)) {
+    throw new Error("Could not identify tab to capture.");
+  }
+
+  activeCaptureTabId = tabId;
+  sendStatus(`Connecting backend for tab ${tabId}...`);
+
+  ws = new WebSocket("ws://localhost:3001");
+
+  ws.onopen = () => {
+    sendStatus(`Backend connected (tab ${tabId})`);
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === "TRANSCRIPT") {
+        chrome.runtime.sendMessage(data);
+      } else if (data.type === "ERROR") {
+        sendStatusError(data.message || "Backend transcription error");
+      }
+    } catch (error) {
+      console.error("Invalid backend message", error);
+    }
+  };
+
+  ws.onerror = () => {
+    sendStatusError("Could not connect to ws://localhost:3001");
+  };
+
+  ws.onclose = () => {
+    if (isStreaming) {
+      sendStatus("Disconnected");
+    }
+    isStreaming = false;
+    activeCaptureTabId = null;
+    void stopCaptureInOffscreen();
+  };
+
+  await waitForWebSocketOpen(ws);
+  await ensureOffscreenDocument();
+
+  const streamId = await getMediaStreamIdForTab(tabId);
+  const captureStartResult = await sendRuntimeMessage({
+    action: "START_CAPTURE",
+    streamId,
+    sampleRate: 16000
+  });
+
+  if (!captureStartResult?.ok) {
+    throw new Error(captureStartResult?.message || "Failed to start offscreen capture");
+  }
+
+  isStreaming = true;
+  sendStatus(`Recording tab ${tabId}. You can switch tabs or close popup.`);
 }
 
 function stopStreaming() {
-  console.log("Stopping streaming");
   isStreaming = false;
-  
-  if (processor) {
-    processor.disconnect();
-    processor = null;
-  }
-  if (audioContext) {
-    audioContext.close();
-    audioContext = null;
-  }
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
-  }
+  void stopCaptureInOffscreen();
+
   if (ws) {
-    ws.close();
+    try {
+      ws.close();
+    } catch (error) {
+      console.error("Failed to close websocket", error);
+    }
     ws = null;
   }
-  
-  chrome.runtime.sendMessage({ action: "STATUS", status: "Stopped" });
+
+  activeCaptureTabId = null;
+  sendStatus("Stopped");
 }
 
-// Convert Float32 to PCM16
-function floatTo16BitPCM(float32Array) {
-  const buffer = new ArrayBuffer(float32Array.length * 2);
-  const view = new DataView(buffer);
-  let offset = 0;
-  for (let i = 0; i < float32Array.length; i++, offset += 2) {
-    let s = Math.max(-1, Math.min(1, float32Array[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+async function stopCaptureInOffscreen() {
+  try {
+    await sendRuntimeMessage({ action: "STOP_CAPTURE" });
+  } catch {
+    // ignore when offscreen isn't up yet
   }
-  return buffer;
+}
+
+async function ensureOffscreenDocument() {
+  if (await chrome.offscreen.hasDocument()) {
+    return;
+  }
+
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_DOCUMENT_PATH,
+    reasons: ["USER_MEDIA"],
+    justification: "Capture tab audio continuously while popup may be closed"
+  });
+}
+
+function getActiveTabId() {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(tabs?.[0]?.id);
+    });
+  });
+}
+
+function getMediaStreamIdForTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (streamId) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!streamId) {
+        reject(new Error("Could not get media stream id for tab"));
+        return;
+      }
+
+      resolve(streamId);
+    });
+  });
+}
+
+function waitForWebSocketOpen(socket) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error("Timed out connecting to backend"));
+    }, 5000);
+
+    socket.addEventListener(
+      "open",
+      () => {
+        clearTimeout(timeoutId);
+        resolve();
+      },
+      { once: true }
+    );
+
+    socket.addEventListener(
+      "error",
+      () => {
+        clearTimeout(timeoutId);
+        reject(new Error("Websocket connection failed"));
+      },
+      { once: true }
+    );
+  });
+}
+
+function sendRuntimeMessage(payload) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}
+
+function sendStatus(status) {
+  chrome.runtime.sendMessage({ action: "STATUS", status });
+}
+
+function sendStatusError(message) {
+  chrome.runtime.sendMessage({ action: "ERROR", message });
 }

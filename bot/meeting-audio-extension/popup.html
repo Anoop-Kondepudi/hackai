@@ -3,7 +3,7 @@
   <head>
     <style>
       body {
-        width: 200px;
+        width: 260px;
         padding: 10px;
         font-family: Arial, sans-serif;
       }
@@ -16,27 +16,34 @@
         cursor: pointer;
         font-size: 14px;
       }
-      #start {
-        background-color: #4CAF50;
+      #startBtn {
+        background-color: #4caf50;
         color: white;
       }
-      #stop {
+      #stopBtn {
         background-color: #f44336;
         color: white;
       }
-      #stop:disabled {
+      #stopBtn:disabled,
+      #startBtn:disabled {
         background-color: #cccccc;
         cursor: not-allowed;
       }
-      #start:disabled {
-        background-color: #cccccc;
-        cursor: not-allowed;
-      }
-      .status {
+      #status {
         text-align: center;
         margin: 10px 0;
         font-size: 12px;
         color: #666;
+      }
+      #transcripts {
+        margin-top: 8px;
+        max-height: 180px;
+        overflow: auto;
+        font-size: 12px;
+        background: #f7f7f7;
+        padding: 8px;
+        border-radius: 4px;
+        white-space: pre-wrap;
       }
     </style>
   </head>

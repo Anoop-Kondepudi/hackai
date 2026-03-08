@@ -1,62 +1,111 @@
-document.addEventListener('DOMContentLoaded', function() {
-  const startBtn = document.getElementById("startBtn");
-  const stopBtn = document.getElementById("stopBtn");
-  const transcripts = document.getElementById("transcripts");
-  const status = document.getElementById("status");
+const EXTENSION_RUNTIME_VERSION = "1.1.0";
+const startBtn = document.getElementById("startBtn");
+const stopBtn = document.getElementById("stopBtn");
+const transcripts = document.getElementById("transcripts");
+const status = document.getElementById("status");
 
-  let isStreaming = false;
+let isStreaming = false;
 
-  // Initialize button states
+initialize();
+
+async function initialize() {
   stopBtn.disabled = true;
   status.textContent = "Ready to start";
+  console.log(`[Live Transcriber ${EXTENSION_RUNTIME_VERSION}] popup initialized`);
 
-  startBtn.onclick = () => {
-    if (!isStreaming) {
-      console.log("Start button clicked");
-      startBtn.disabled = true;
-      status.textContent = "Starting...";
-      chrome.runtime.sendMessage({ action: "START" });
-    }
-  };
-  
-  stopBtn.onclick = () => {
-    if (isStreaming) {
-      console.log("Stop button clicked");
-      stopBtn.disabled = true;
-      status.textContent = "Stopping...";
-      chrome.runtime.sendMessage({ action: "STOP" });
-    }
-  };
-
-  // Listen for messages from background
-  chrome.runtime.onMessage.addListener((msg) => {
-    console.log("Message received:", msg);
-    
-    if (msg.type === "TRANSCRIPT") {
-      transcripts.textContent += msg.text + "\n";
-      // Auto-scroll to bottom
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === "TRANSCRIPT" && message.text) {
+      const prefix = message.isFinal ? "" : "… ";
+      transcripts.textContent += `${prefix}${message.text}\n`;
       transcripts.scrollTop = transcripts.scrollHeight;
-    } else if (msg.action === "STATUS") {
-      status.textContent = msg.status;
-      
-      if (msg.status === "Recording") {
-        isStreaming = true;
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-      } else if (msg.status === "Stopped" || msg.status === "Disconnected") {
-        isStreaming = false;
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+      return;
+    }
+
+    if (message.action === "STATUS") {
+      status.textContent = message.status;
+      const currentlyRecording = typeof message.status === "string" && message.status.startsWith("Recording");
+      isStreaming = currentlyRecording;
+      startBtn.disabled = currentlyRecording;
+      stopBtn.disabled = !currentlyRecording;
+      return;
+    }
+
+    if (message.action === "ERROR") {
+      const rawMessage = message.message || "Unknown error";
+      if (rawMessage.includes("tabCapture.capture is not a function")) {
+        status.textContent = "Error: Extension runtime is stale. Please reload extension in chrome://extensions and try again.";
+      } else {
+        status.textContent = `Error: ${rawMessage}`;
       }
-    } else if (msg.action === "ERROR") {
-      status.textContent = "Error: " + msg.message;
-      console.error("Extension error:", msg.message);
       isStreaming = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
     }
   });
 
-  // Handle any runtime errors
-  chrome.runtime.lastError && console.error("Runtime error:", chrome.runtime.lastError);
-});
+  try {
+    const state = await sendMessage({ action: "GET_STATE" });
+    if (state?.ok && state.isStreaming) {
+      isStreaming = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      status.textContent = `Recording tab ${state.tabId ?? ""}`.trim();
+    }
+  } catch (error) {
+    status.textContent = `Error: ${error.message}`;
+  }
+
+  startBtn.addEventListener("click", async () => {
+    if (isStreaming) return;
+
+    startBtn.disabled = true;
+    status.textContent = "Starting...";
+
+    try {
+      const tabId = await getActiveTabId();
+      const response = await sendMessage({ action: "START", tabId });
+      if (!response?.ok) {
+        throw new Error(response?.message || "Failed to start streaming");
+      }
+    } catch (error) {
+      status.textContent = `Error: ${error.message}`;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+  });
+
+  stopBtn.addEventListener("click", async () => {
+    if (!isStreaming) return;
+
+    await sendMessage({ action: "STOP" });
+    isStreaming = false;
+    status.textContent = "Stopped";
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  });
+}
+
+function getActiveTabId() {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve(tabs?.[0]?.id);
+    });
+  });
+}
+
+function sendMessage(payload) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(payload, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response);
+    });
+  });
+}

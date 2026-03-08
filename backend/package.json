@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node meeting-audio-backend.js"
+    "start": "node meeting-audio-backend.js",
+    "transcribe:local": "node local-audio-transcriber.js"
   },
   "dependencies": {
     "ws": "^8.14.0",
