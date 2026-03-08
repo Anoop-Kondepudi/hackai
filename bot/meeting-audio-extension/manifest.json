@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Live Transcriber",
-  "version": "1.0",
-  "permissions": ["tabs", "tabCapture", "scripting"],
+  "version": "1.1.0",
+  "permissions": ["tabs", "tabCapture", "scripting", "offscreen"],
   "background": {
     "service_worker": "background.js"
   },
