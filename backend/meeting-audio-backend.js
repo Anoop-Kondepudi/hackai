@@ -12,6 +12,9 @@ if (!apiKey) {
   process.exit(1);
 }
 
+const enableSpeakerLabels = (process.env.ASSEMBLYAI_SPEAKER_LABELS || "true").toLowerCase() === "true";
+const maxSpeakers = process.env.ASSEMBLYAI_MAX_SPEAKERS ? Number(process.env.ASSEMBLYAI_MAX_SPEAKERS) : undefined;
+
 const client = new AssemblyAI({ apiKey });
 const wss = new WebSocketServer({ port });
 
@@ -21,7 +24,9 @@ wss.on("connection", async (socket) => {
   // Use the v3 Streaming API (realtime/v2 returns HTTP 410 for many accounts).
   const transcriber = client.streaming.transcriber({
     sampleRate: 16000,
-    speechModel: process.env.ASSEMBLYAI_SPEECH_MODEL || "universal-streaming-multilingual"
+    speechModel: process.env.ASSEMBLYAI_SPEECH_MODEL || "universal-streaming-multilingual",
+    speakerLabels: enableSpeakerLabels,
+    ...(Number.isInteger(maxSpeakers) ? { maxSpeakers } : {})
   });
 
   let transcriberReady = false;
@@ -41,14 +46,16 @@ wss.on("connection", async (socket) => {
     if (!text) return;
 
     const transcriptType = turn.end_of_turn ? "final" : "partial";
-    console.log(`Transcript (${transcriptType}):`, text);
+    const speakerLabel = turn.speaker_label || "UNKNOWN";
+    console.log(`Transcript (${transcriptType}) [${speakerLabel}]:`, text);
 
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(
         JSON.stringify({
           type: "TRANSCRIPT",
           text,
-          isFinal: Boolean(turn.end_of_turn)
+          isFinal: Boolean(turn.end_of_turn),
+          speakerLabel
         })
       );
     }

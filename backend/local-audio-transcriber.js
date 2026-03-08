@@ -16,10 +16,15 @@ const ffmpegFormat = process.env.AUDIO_INPUT_FORMAT || defaultInputFormat();
 const inputDevicePrimary = process.env.AUDIO_INPUT_DEVICE || defaultInputDevice();
 const inputDeviceSecondary = process.env.AUDIO_INPUT_DEVICE_2 || defaultSecondaryInputDevice();
 
+const enableSpeakerLabels = (process.env.ASSEMBLYAI_SPEAKER_LABELS || "true").toLowerCase() === "true";
+const maxSpeakers = process.env.ASSEMBLYAI_MAX_SPEAKERS ? Number(process.env.ASSEMBLYAI_MAX_SPEAKERS) : undefined;
+
 const client = new AssemblyAI({ apiKey });
 const transcriber = client.streaming.transcriber({
   sampleRate,
-  speechModel
+  speechModel,
+  speakerLabels: enableSpeakerLabels,
+  ...(Number.isInteger(maxSpeakers) ? { maxSpeakers } : {})
 });
 
 let ffmpegProcess;
@@ -39,7 +44,8 @@ transcriber.on("turn", (turn) => {
   const text = (turn.transcript || "").trim();
   if (!text) return;
   const tag = turn.end_of_turn ? "final" : "partial";
-  console.log(`[${tag}] ${text}`);
+  const speaker = turn.speaker_label || "UNKNOWN";
+  console.log(`[${tag}][${speaker}] ${text}`);
 });
 
 transcriber.on("error", (error) => {

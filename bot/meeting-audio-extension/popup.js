@@ -16,7 +16,8 @@ async function initialize() {
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === "TRANSCRIPT" && message.text) {
       const prefix = message.isFinal ? "" : "… ";
-      transcripts.textContent += `${prefix}${message.text}\n`;
+      const speaker = message.speakerLabel || "UNKNOWN";
+      transcripts.textContent += `${prefix}[${speaker}] ${message.text}\n`;
       transcripts.scrollTop = transcripts.scrollHeight;
       return;
     }

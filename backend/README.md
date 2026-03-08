@@ -28,6 +28,7 @@ npm install
 ASSEMBLYAI_API_KEY=your_key_here npm start
 # optional
 # ASSEMBLYAI_SPEECH_MODEL=universal-streaming-multilingual npm start
+# ASSEMBLYAI_SPEAKER_LABELS=true ASSEMBLYAI_MAX_SPEAKERS=2 npm start
 ```
 
 The server listens on `ws://localhost:3001` (or `PORT` if set) and prints transcripts to stdout.
@@ -62,6 +63,12 @@ AUDIO_SAMPLE_RATE=16000
 
 # defaults to universal-streaming-multilingual
 ASSEMBLYAI_SPEECH_MODEL=universal-streaming-multilingual
+
+# defaults to true
+ASSEMBLYAI_SPEAKER_LABELS=true
+
+# optional diarization hint (1-10)
+ASSEMBLYAI_MAX_SPEAKERS=2
 ```
 
 > Note: `ffmpeg` must be installed and available in your PATH.
