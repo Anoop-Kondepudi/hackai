@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node meeting-audio-backend.js"
+    "start": "node local-audio-transcriber.js",
+    "transcribe:local": "node local-audio-transcriber.js"
   },
   "dependencies": {
     "ws": "^8.14.0",
     "assemblyai": "^4.0.0",
     "dotenv": "^16.3.1"
-  }
+  },
+  "description": "Node-only local audio transcription backend"
 }

@@ -2,16 +2,16 @@
 
 Meeting-to-PR pipeline. A bot joins a meeting, transcribes the conversation, extracts action items, creates GitHub issues with AI-generated implementation plans, and opens PRs — all automatically.
 
-**Flow:** Live Meeting → Audio Capture → Transcription → Task Extraction → GitHub Issues → AI Plan → PR
+**Flow:** Live Meeting / Local Audio Capture → Transcription → Task Extraction → GitHub Issues → AI Plan → PR
 
 ## Repo Structure
 
 | Folder | Owner | Description |
 |--------|-------|-------------|
-| `bot/` | Nishil | Meeting bot — joins calls, captures audio |
+| `bot/` | Nishil | Meeting bot (extension path deprecated for now) |
 | `transcription/` | Shiv | Audio → text chunks with speaker detection |
 | `pipeline/` | Anoop | Transcript → actionable task extraction |
-| `backend/` | Anoop | GitHub issue creation, AI plans, PR generation |
+| `backend/` | Anoop | GitHub issue creation, AI plans, PR generation + local transcriber |
 | `dashboard/` | Anoop | Real-time monitoring UI |
 | `shared/` | Everyone | Data contracts (schemas) and config |
 | `data/` | Runtime | Audio, transcripts, tasks, issue status (gitignored) |
@@ -20,9 +20,9 @@ Meeting-to-PR pipeline. A bot joins a meeting, transcribes the conversation, ext
 ## Data Flow
 
 ```
-bot/ → raw audio → transcription/ → { speaker, text, timestamp } → pipeline/ → extracted tasks → backend/ → GitHub issues + PRs
-                                                                                                       ↓
-                                                                                                  dashboard/ (reads all state)
+local audio capture (Node + ffmpeg) → transcription → { speaker, text, timestamp } → pipeline → extracted tasks → backend → GitHub issues + PRs
+                                                                                                            ↓
+                                                                                                       dashboard/ (reads all state)
 ```
 
 Contracts between stages are defined in `shared/schemas/`.
