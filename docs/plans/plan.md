@@ -38,19 +38,26 @@ hackai/
 - Output: updated tasks.md
 - Creates GitHub issues immediately with `draft` label
 - Updates issues as tasks evolve during meeting
-- Auto-stabilizes tasks after 3-4 chunks with no changes → removes `draft` label
-- Prompt: `pipeline/prompts/task_extractor.md`
+- Relevance checking: resets stabilization counter if task is still being discussed
+- Auto-stabilizes tasks after 3 unchanged cycles → `draft` → `planning`
+- MEETING_ENDED signal: immediately finalizes all remaining drafts
+- Code: `backend/extractor.py`, `backend/relevance.py`, `backend/orchestrator.py`
 
-**Phase 2: Plan Generator** (triggered when task stabilizes) — TODO
-- Input: stabilized task from tasks.md
+**Phase 2: Plan Generator** (triggered when task stabilizes)
+- Input: task details + repo file tree
 - Output: implementation plan posted as issue comment
-- Prompt: `pipeline/prompts/plan_generator.md`
+- Model: GPT-5.4 via Codex CLI (xhigh reasoning)
+- Concurrent: runs in background threads, non-blocking to extraction loop
+- On failure: posts comment explaining why, reverts to `draft` for retry
+- Code: `backend/plan_generator.py`
 
-**Phase 3: PR Creator** (triggered after plan) — TODO
-- Input: task + plan
-- Output: GitHub PR with code
-- Uses Claude Code CLI in headless mode
-- Prompt: `pipeline/prompts/pr_creator.md`
+**Phase 3: PR Creator** (triggered after plan, chained in same thread)
+- Phase 3.1 — Sanity check: Codex evaluates if plan is implementable in this codebase
+  - Not actionable → closes issue with explanation, status → `cancelled`
+- Phase 3.2 — Implementation: Codex generates code in an isolated git worktree
+  - Creates branch `hackai-TASK-{id}`, commits, pushes, opens PR via `gh pr create`
+  - On failure → posts comment, reverts to `planned` for retry
+- Code: `backend/pr_creator.py`
 
 ### Task File Format (`data/tasks/tasks.md`)
 ```
@@ -63,8 +70,14 @@ Description: Google OAuth login broken. Redirect URI wrong in production.
 Source: "The auth system is completely broken..." (Shiv, 14:00:05)
 ```
 
-Fields: ID, Title, Issue number, Status, Label, Last-Updated, Description, Source.
+Fields: ID, Title, Issue number, Status, Label, Last-Updated, Unchanged-Cycles, Description, Source.
 No assignee, no priority — fully agentic pipeline handles everything.
+
+### Status Lifecycle
+```
+draft → planning → planned → implementing → pr-open
+                                    ↘ cancelled (sanity check fails)
+```
 
 ### Token Safety
 - Hard stop at 80k tokens — preserve tasks.md, send message via bot
@@ -148,14 +161,14 @@ Everything runs locally. No deployment needed.
 
 ## MVP Milestones
 
-| # | Milestone | Owner |
-|---|-----------|-------|
-| 1 | Bot joins a call and captures audio | Nishil |
-| 2 | Audio transcribed to text in real time | Shiv |
-| 3 | Transcription → extracted tasks → GitHub issues (draft) | Anoop |
-| 4 | Tasks auto-stabilize and AI posts implementation plan | Anoop |
-| 5 | Plan → PR with code changes | Anoop |
-| 6 | Dashboard UI showing live pipeline status | Anoop |
+| # | Milestone | Owner | Status |
+|---|-----------|-------|--------|
+| 1 | Bot joins a call and captures audio | Nishil | In progress |
+| 2 | Audio transcribed to text in real time | Shiv | In progress |
+| 3 | Transcription → extracted tasks → GitHub issues (draft) | Anoop | **Done** |
+| 4 | Tasks auto-stabilize and AI posts implementation plan | Anoop | **Done** |
+| 5 | Plan → PR with code changes | Anoop | **Done** |
+| 6 | Dashboard UI showing live pipeline status | Anoop | Not started |
 
 ## Open Questions
 
