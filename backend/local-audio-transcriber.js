@@ -52,7 +52,7 @@ transcriber.on("close", (code, reason) => {
 
 await transcriber.connect();
 console.log("Connected to AssemblyAI streaming API");
-console.log(`Starting microphone capture via ffmpeg: format=${ffmpegFormat}, device=${ffmpegDevice}`);
+console.log("Starting audio capture via ffmpeg: VB-CABLE output + Microphone");
 console.log("Press Ctrl+C to stop.\n");
 
 ffmpegProcess = spawn(
@@ -62,9 +62,15 @@ ffmpegProcess = spawn(
     "-loglevel",
     "error",
     "-f",
-    ffmpegFormat,
+    "dshow",
     "-i",
-    ffmpegDevice,
+    "audio=CABLE Output (VB-Audio Virtual Cable)",
+    "-f",
+    "dshow",
+    "-i",
+    "audio=Microphone (2- Realtek(R) Audio)",
+    "-filter_complex",
+    "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2",
     "-ac",
     "1",
     "-ar",
@@ -128,6 +134,6 @@ function defaultInputFormat() {
 
 function defaultInputDevice() {
   if (process.platform === "darwin") return ":0";
-  if (process.platform === "win32") return "audio=default";
+  if (process.platform === "win32") return "audio=CABLE Output (VB-Audio Virtual Cable)";
   return "default";
 }
