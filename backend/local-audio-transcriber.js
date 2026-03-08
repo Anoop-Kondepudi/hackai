@@ -10,7 +10,7 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const speechModel = process.env.ASSEMBLYAI_SPEECH_MODEL || "universal-streaming-multilingual";
+const speechModel = process.env.ASSEMBLYAI_SPEECH_MODEL || "u3-rt-pro";
 const sampleRate = Number(process.env.AUDIO_SAMPLE_RATE || 16000);
 const ffmpegFormat = process.env.AUDIO_INPUT_FORMAT || defaultInputFormat();
 const inputDevicePrimary = process.env.AUDIO_INPUT_DEVICE || defaultInputDevice();
