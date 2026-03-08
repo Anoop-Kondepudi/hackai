@@ -1,69 +1,37 @@
 import { spawn } from "node:child_process";
-import { AssemblyAI } from "assemblyai";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const apiKey = process.env.ASSEMBLYAI_API_KEY;
+const apiKey = process.env.ELEVENLABS_API_KEY;
 if (!apiKey) {
-  console.error("Missing ASSEMBLYAI_API_KEY in environment.");
+  console.error("Missing ELEVENLABS_API_KEY in environment.");
   process.exit(1);
 }
 
-const speechModel = process.env.ASSEMBLYAI_SPEECH_MODEL || "u3-rt-pro";
+const modelId = process.env.ELEVENLABS_MODEL_ID || "scribe_v1";
+const languageCode = process.env.ELEVENLABS_LANGUAGE_CODE;
 const sampleRate = Number(process.env.AUDIO_SAMPLE_RATE || 16000);
+const chunkDurationMs = Number(process.env.TRANSCRIPTION_CHUNK_MS || 5000);
 const ffmpegFormat = process.env.AUDIO_INPUT_FORMAT || defaultInputFormat();
 const inputDevicePrimary = process.env.AUDIO_INPUT_DEVICE || defaultInputDevice();
 const inputDeviceSecondary = process.env.AUDIO_INPUT_DEVICE_2 || defaultSecondaryInputDevice();
 
-const enableSpeakerLabels = (process.env.ASSEMBLYAI_SPEAKER_LABELS || "true").toLowerCase() === "true";
-const maxSpeakers = process.env.ASSEMBLYAI_MAX_SPEAKERS ? Number(process.env.ASSEMBLYAI_MAX_SPEAKERS) : undefined;
-
-const client = new AssemblyAI({ apiKey });
-const transcriber = client.streaming.transcriber({
-  sampleRate,
-  speechModel,
-  speakerLabels: enableSpeakerLabels,
-  ...(Number.isInteger(maxSpeakers) ? { maxSpeakers } : {})
-});
-
 let ffmpegProcess;
-let ready = false;
-const queuedChunks = [];
+let pendingAudio = Buffer.alloc(0);
+let chunkIndex = 0;
+const bytesPerSecond = sampleRate * 2;
+const chunkSizeBytes = Math.max(1, Math.floor((bytesPerSecond * chunkDurationMs) / 1000));
 
-transcriber.on("open", ({ id }) => {
-  ready = true;
-  console.log(`AssemblyAI session opened: ${id}`);
+let processingQueue = Promise.resolve();
 
-  while (queuedChunks.length > 0) {
-    transcriber.sendAudio(queuedChunks.shift());
-  }
-});
-
-transcriber.on("turn", (turn) => {
-  const text = (turn.transcript || "").trim();
-  if (!text) return;
-  const tag = turn.end_of_turn ? "final" : "partial";
-  const speaker = turn.speaker_label || "UNKNOWN";
-  console.log(`[${tag}][${speaker}] ${text}`);
-});
-
-transcriber.on("error", (error) => {
-  console.error("AssemblyAI streaming error:", error?.message || error);
-});
-
-transcriber.on("close", (code, reason) => {
-  ready = false;
-  console.log("AssemblyAI streaming closed:", code, reason || "");
-});
-
-await transcriber.connect();
-console.log("Connected to AssemblyAI streaming API");
 console.log(
   inputDeviceSecondary
     ? `Starting audio capture via ffmpeg: ${inputDevicePrimary} + ${inputDeviceSecondary}`
     : `Starting audio capture via ffmpeg: ${inputDevicePrimary}`
 );
+console.log(`Using ElevenLabs model: ${modelId}`);
+console.log(`Chunk duration: ${chunkDurationMs}ms`);
 console.log("Press Ctrl+C to stop.\n");
 
 ffmpegProcess = spawn("ffmpeg", buildFfmpegArgs(), {
@@ -71,10 +39,11 @@ ffmpegProcess = spawn("ffmpeg", buildFfmpegArgs(), {
 });
 
 ffmpegProcess.stdout.on("data", (chunk) => {
-  if (ready) {
-    transcriber.sendAudio(chunk);
-  } else {
-    queuedChunks.push(chunk);
+  pendingAudio = Buffer.concat([pendingAudio, chunk]);
+  while (pendingAudio.length >= chunkSizeBytes) {
+    const audioSlice = pendingAudio.subarray(0, chunkSizeBytes);
+    pendingAudio = pendingAudio.subarray(chunkSizeBytes);
+    queueTranscription(audioSlice, false);
   }
 });
 
@@ -96,6 +65,46 @@ ffmpegProcess.on("close", (code) => {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 
+function queueTranscription(audioBuffer, flush) {
+  const currentChunk = ++chunkIndex;
+  processingQueue = processingQueue.then(() => transcribeChunk(audioBuffer, currentChunk, flush));
+}
+
+async function transcribeChunk(audioBuffer, currentChunk, flush) {
+  try {
+    const wavBuffer = pcm16MonoToWav(audioBuffer, sampleRate);
+    const form = new FormData();
+    form.append("model_id", modelId);
+    if (languageCode) {
+      form.append("language_code", languageCode);
+    }
+    form.append("file", new Blob([wavBuffer], { type: "audio/wav" }), `chunk-${currentChunk}.wav`);
+
+    const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey
+      },
+      body: form
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`ElevenLabs transcription failed for chunk ${currentChunk}:`, response.status, errorBody);
+      return;
+    }
+
+    const payload = await response.json();
+    const text = (payload.text || "").trim();
+    if (!text) return;
+
+    const tag = flush ? "final" : "partial";
+    console.log(`[${tag}][UNKNOWN] ${text}`);
+  } catch (error) {
+    console.error(`Error transcribing chunk ${currentChunk}:`, error?.message || error);
+  }
+}
+
 let shuttingDown = false;
 async function shutdown(exitCode) {
   if (shuttingDown) return;
@@ -105,10 +114,15 @@ async function shutdown(exitCode) {
     ffmpegProcess.kill("SIGTERM");
   }
 
+  if (pendingAudio.length > 0) {
+    queueTranscription(pendingAudio, true);
+    pendingAudio = Buffer.alloc(0);
+  }
+
   try {
-    await transcriber.close();
+    await processingQueue;
   } catch (error) {
-    console.error("Error closing transcriber:", error?.message || error);
+    console.error("Error while draining transcription queue:", error?.message || error);
   }
 
   process.exit(exitCode);
@@ -126,6 +140,27 @@ function buildFfmpegArgs() {
 
   args.push("-ac", "1", "-ar", String(sampleRate), "-f", "s16le", "pipe:1");
   return args;
+}
+
+function pcm16MonoToWav(pcmData, hz) {
+  const header = Buffer.alloc(44);
+  const dataSize = pcmData.length;
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(hz, 24);
+  header.writeUInt32LE(hz * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmData]);
 }
 
 function defaultInputFormat() {

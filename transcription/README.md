@@ -15,5 +15,5 @@ JSON files written to `data/transcripts/` (or equivalent) matching the Transcrip
 ```
 
 ## Key Decisions
-- Whisper (local) vs Deepgram vs AssemblyAI
+- Whisper (local) vs Deepgram vs ElevenLabs
 - How to handle speaker diarization
