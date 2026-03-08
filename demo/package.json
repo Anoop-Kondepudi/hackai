@@ -1,0 +1,16 @@
+{
+  "name": "hackai-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demo to-do list app for HackAI pipeline showcase",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
