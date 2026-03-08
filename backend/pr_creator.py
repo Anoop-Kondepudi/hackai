@@ -13,7 +13,17 @@ log = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REPO = os.getenv("GITHUB_REPO", "Anoop-Kondepudi/hackai")
 
-CODEX_TIMEOUT = 300  # 5 minutes
+
+def _get_codex_timeout() -> int:
+    """Read Codex timeout from the environment with a safe fallback."""
+    try:
+        timeout = int(os.getenv("CODEX_TIMEOUT", "300"))
+        return timeout if timeout > 0 else 300
+    except (TypeError, ValueError):
+        return 300
+
+
+CODEX_TIMEOUT = _get_codex_timeout()
 
 
 # ---------------------------------------------------------------------------
