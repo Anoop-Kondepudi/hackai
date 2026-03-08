@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "IssueStatus",
+  "description": "Tracks a GitHub issue through the AI planning and PR pipeline. Produced/updated by backend/, consumed by dashboard/.",
+  "type": "object",
+  "required": ["task_id", "github_issue_url", "status"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "References the task that created this issue"
+    },
+    "github_issue_url": {
+      "type": "string",
+      "description": "URL of the created GitHub issue"
+    },
+    "github_issue_number": {
+      "type": "integer",
+      "description": "Issue number in the repo"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["created", "plan_posted", "plan_approved", "pr_opened", "pr_merged"],
+      "description": "Current status of the issue in the pipeline"
+    },
+    "plan": {
+      "type": "string",
+      "description": "The AI-generated implementation plan posted as a comment"
+    },
+    "pr_url": {
+      "type": "string",
+      "description": "URL of the PR once opened"
+    }
+  }
+}
