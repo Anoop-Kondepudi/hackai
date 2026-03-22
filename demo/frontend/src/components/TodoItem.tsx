@@ -1,12 +1,58 @@
+import { useEffect, useRef, useState } from 'react';
 import { Todo } from '../types/todo';
 
 interface TodoItemProps {
   todo: Todo;
   onToggle: (id: string) => void;
+  onEdit: (id: string, title: string) => void | Promise<void>;
   onDelete: (id: string) => void;
 }
 
-export default function TodoItem({ todo, onToggle, onDelete }: TodoItemProps) {
+export default function TodoItem({
+  todo,
+  onToggle,
+  onEdit,
+  onDelete,
+}: TodoItemProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(todo.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftTitle(todo.title);
+    }
+  }, [isEditing, todo.title]);
+
+  useEffect(() => {
+    if (isEditing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isEditing]);
+
+  const startEditing = () => {
+    setDraftTitle(todo.title);
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setDraftTitle(todo.title);
+    setIsEditing(false);
+  };
+
+  const saveEditing = async () => {
+    const trimmedTitle = draftTitle.trim();
+
+    if (!trimmedTitle || trimmedTitle === todo.title) {
+      cancelEditing();
+      return;
+    }
+
+    await Promise.resolve(onEdit(todo.id, trimmedTitle));
+    setIsEditing(false);
+  };
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center gap-4">
       <button
@@ -33,13 +79,35 @@ export default function TodoItem({ todo, onToggle, onDelete }: TodoItemProps) {
           </svg>
         )}
       </button>
-      <span
-        className={`text-sm font-medium flex-1 ${
-          todo.completed ? 'line-through text-slate-400' : 'text-slate-800'
-        }`}
-      >
-        {todo.title}
-      </span>
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={draftTitle}
+          onChange={(event) => setDraftTitle(event.target.value)}
+          onKeyDown={async (event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              await saveEditing();
+            }
+
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              cancelEditing();
+            }
+          }}
+          className="flex-1 min-w-0 text-sm font-medium text-slate-800 bg-transparent border border-slate-300 rounded-lg px-2 py-1 outline-none focus:border-emerald-500"
+        />
+      ) : (
+        <span
+          onDoubleClick={startEditing}
+          className={`text-sm font-medium flex-1 min-w-0 ${
+            todo.completed ? 'line-through text-slate-400' : 'text-slate-800'
+          }`}
+        >
+          {todo.title}
+        </span>
+      )}
       <button
         onClick={() => onDelete(todo.id)}
         className="text-slate-400 p-1"
